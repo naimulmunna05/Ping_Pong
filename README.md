@@ -11,4 +11,4 @@ A 4-player multi-ball retro arcade Pong game built with **HTML5 Canvas**, **Vani
 * Move: `Arrow Up` / `Arrow Down` or `W` / `S`
 
 ## 🌐 Live Demo
-Play here: [https://naimulmunna05.github.io/Ping_Pong/]
+Play here: [![Play Game](https://img.shields.io/badge/Live%20Demo-🌐-blue)](https://naimulmunna05.github.io/Ping_Pong/)
