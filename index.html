@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quad Arena Battle</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #080810;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #ffffff;
+            font-family: 'Press Start 2P', monospace, sans-serif;
+            overflow: hidden;
+            outline: none;
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        .game-title {
+            margin-bottom: 12px;
+            font-size: 15px;
+            color: #00ffcc;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(0, 255, 204, 0.5);
+        }
+
+        #scoreboard {
+            display: flex;
+            justify-content: space-between;
+            width: 720px;
+            margin-bottom: 12px;
+            font-size: 11px; /* নাম ও পয়েন্ট বড় করা হয়েছে */
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .stats-p1 { color: #00ffcc; }
+        .stats-top { color: #ffff00; }
+        .stats-bot { color: #0088ff; }
+        .stats-right { color: #ff007f; }
+
+        #gameContainer {
+            position: relative;
+        }
+
+        canvas {
+            border: 4px solid #00ffcc;
+            background-color: #0d0c1d;
+            box-shadow: 0 0 35px rgba(0, 255, 204, 0.3), inset 0 0 20px rgba(255, 0, 127, 0.2);
+            display: block;
+        }
+    </style>
+</head>
+<body tabindex="0" id="gameBody">
+
+    <div class="game-title">⚡ 4-PLAYER NEON ARENA ⚡</div>
+    
+    <div id="scoreboard">
+        <span class="stats-p1">P1: <span id="score1">0</span> (<span id="life1">3</span>L)</span>
+        <span class="stats-top">CYBER: <span id="scoreTop">0</span> (<span id="lifeTop">3</span>L)</span>
+        <span class="stats-bot">NEON: <span id="scoreBot">0</span> (<span id="lifeBot">3</span>L)</span>
+        <span class="stats-right">NOVA: <span id="scoreRight">0</span> (<span id="lifeRight">3</span>L)</span>
+    </div>
+
+    <div id="gameContainer">
+        <canvas id="pongCanvas" width="700" height="700"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("pongCanvas");
+        const ctx = canvas.getContext("2d");
+        const gameBody = document.getElementById("gameBody");
+
+        window.onload = () => gameBody.focus();
+        window.onclick = () => gameBody.focus();
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(freq, duration, type = 'sine', volume = 0.08) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(volume, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + duration);
+        }
+
+        let balls = [];
+
+        function createBall(color, speedMult = 1) {
+            return {
+                x: canvas.width / 2 + (Math.random() * 40 - 20),
+                y: canvas.height / 2 + (Math.random() * 40 - 20),
+                radius: 8,
+                speed: 2.2 + speedMult,
+                velocityX: (Math.random() > 0.5 ? 1 : -1) * (2.0 + speedMult),
+                velocityY: (Math.random() > 0.5 ? 1 : -1) * (2.0 + speedMult),
+                color: color,
+                history: []
+            };
+        }
+
+        const leftPaddle = { x: 15, y: canvas.height / 2 - 50, width: 12, height: 100, score: 0, lives: 3, color: "#00ffcc", speed: 8 };
+        const rightPaddle = { x: canvas.width - 27, y: canvas.height / 2 - 50, width: 12, height: 100, score: 0, lives: 3, color: "#ff007f", speed: 6 };
+        const topPaddle = { x: canvas.width / 2 - 50, y: 15, width: 100, height: 12, score: 0, lives: 3, color: "#ffff00", speed: 6 };
+        const bottomPaddle = { x: canvas.width / 2 - 50, y: canvas.height - 27, width: 100, height: 12, score: 0, lives: 3, color: "#0088ff", speed: 6 };
+
+        const keys = {};
+        window.addEventListener("keydown", e => {
+            keys[e.key.toLowerCase()] = true;
+            if(["arrowup","arrowdown"," "].includes(e.key.toLowerCase())) e.preventDefault();
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+        });
+        window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+        function resetBalls() {
+            balls = [
+                createBall("#ff0055", 0),   
+                createBall("#00ffff", 0.3), 
+                createBall("#70ff00", -0.3) 
+            ];
+        }
+
+        function handleInputs() {
+            if ((keys['arrowup'] || keys['w']) && leftPaddle.y > 0) leftPaddle.y -= leftPaddle.speed;
+            if ((keys['arrowdown'] || keys['s']) && leftPaddle.y < canvas.height - leftPaddle.height) leftPaddle.y += leftPaddle.speed;
+
+            let targetBall = balls[0] || { x: canvas.width / 2 };
+            let topTargetX = targetBall.x - (topPaddle.width / 2);
+            topPaddle.x += (topTargetX - topPaddle.x) * 0.06;
+            if (topPaddle.x < 0) topPaddle.x = 0;
+            if (topPaddle.x > canvas.width - topPaddle.width) topPaddle.x = canvas.width - topPaddle.width;
+
+            let botTargetX = (balls[1] || balls[0] || { x: canvas.width / 2 }).x - (bottomPaddle.width / 2);
+            bottomPaddle.x += (botTargetX - bottomPaddle.x) * 0.06;
+            if (bottomPaddle.x < 0) bottomPaddle.x = 0;
+            if (bottomPaddle.x > canvas.width - bottomPaddle.width) bottomPaddle.x = canvas.width - bottomPaddle.width;
+
+            let rightTargetY = (balls[2] || balls[0] || { y: canvas.height / 2 }).y - (rightPaddle.height / 2);
+            rightPaddle.y += (rightTargetY - rightPaddle.y) * 0.06;
+            if (rightPaddle.y < 0) rightPaddle.y = 0;
+            if (rightPaddle.y > canvas.height - rightPaddle.height) rightPaddle.y = canvas.height - rightPaddle.height;
+        }
+
+        function update() {
+            handleInputs();
+
+            for (let i = balls.length - 1; i >= 0; i--) {
+                let ball = balls[i];
+
+                ball.history.push({ x: ball.x, y: ball.y });
+                if (ball.history.length > 5) ball.history.shift();
+
+                ball.x += ball.velocityX;
+                ball.y += ball.velocityY;
+
+                // Left Paddle (P1) Collision
+                if (ball.x - ball.radius < leftPaddle.x + leftPaddle.width &&
+                    ball.y > leftPaddle.y && ball.y < leftPaddle.y + leftPaddle.height) {
+                    ball.velocityX = -ball.velocityX;
+                    ball.x = leftPaddle.x + leftPaddle.width + ball.radius;
+                    leftPaddle.score += 10;
+                    playSound(400, 0.05);
+                }
+
+                // Right Paddle (Nova) Collision
+                if (ball.x + ball.radius > rightPaddle.x &&
+                    ball.y > rightPaddle.y && ball.y < rightPaddle.y + rightPaddle.height) {
+                    ball.velocityX = -ball.velocityX;
+                    ball.x = rightPaddle.x - ball.radius;
+                    rightPaddle.score += 10;
+                    playSound(450, 0.05);
+                }
+
+                // Top Paddle (Cyber) Collision
+                if (ball.y - ball.radius < topPaddle.y + topPaddle.height &&
+                    ball.x > topPaddle.x && ball.x < topPaddle.x + topPaddle.width) {
+                    ball.velocityY = -ball.velocityY;
+                    ball.y = topPaddle.y + topPaddle.height + ball.radius;
+                    topPaddle.score += 10;
+                    playSound(500, 0.05);
+                }
+
+                // Bottom Paddle (Neon) Collision
+                if (ball.y + ball.radius > bottomPaddle.y &&
+                    ball.x > bottomPaddle.x && ball.x < bottomPaddle.x + bottomPaddle.width) {
+                    ball.velocityY = -ball.velocityY;
+                    ball.y = bottomPaddle.y - ball.radius;
+                    bottomPaddle.score += 10;
+                    playSound(550, 0.05);
+                }
+
+                let lostSide = null;
+                if (ball.x < 0) { lostSide = 'left'; leftPaddle.lives = Math.max(0, leftPaddle.lives - 1); }
+                else if (ball.x > canvas.width) { lostSide = 'right'; rightPaddle.lives = Math.max(0, rightPaddle.lives - 1); }
+                else if (ball.y < 0) { lostSide = 'top'; topPaddle.lives = Math.max(0, topPaddle.lives - 1); }
+                else if (ball.y > canvas.height) { lostSide = 'bot'; bottomPaddle.lives = Math.max(0, bottomPaddle.lives - 1); }
+
+                if (lostSide) {
+                    playSound(150, 0.2, 'sawtooth');
+                    balls.splice(i, 1);
+                }
+            }
+
+            while (balls.length < 3) {
+                let colors = ["#ff0055", "#00ffff", "#70ff00", "#ffaa00", "#bf00ff"];
+                let randomColor = colors[Math.floor(Math.random() * colors.length)];
+                balls.push(createBall(randomColor, Math.random() * 0.5));
+            }
+
+            // Update UI Scores & Lives
+            document.getElementById("score1").innerText = leftPaddle.score;
+            document.getElementById("life1").innerText = leftPaddle.lives;
+            document.getElementById("scoreTop").innerText = topPaddle.score;
+            document.getElementById("lifeTop").innerText = topPaddle.lives;
+            document.getElementById("scoreBot").innerText = bottomPaddle.score;
+            document.getElementById("lifeBot").innerText = bottomPaddle.lives;
+            document.getElementById("scoreRight").innerText = rightPaddle.score;
+            document.getElementById("lifeRight").innerText = rightPaddle.lives;
+        }
+
+        function render() {
+            ctx.fillStyle = "#0d0c1d";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, canvas.height / 2, 90, 0, Math.PI * 2);
+            ctx.stroke();
+
+            for (let ball of balls) {
+                for (let h = 0; h < ball.history.length; h++) {
+                    let alpha = (h / ball.history.length) * 0.3;
+                    ctx.fillStyle = ball.color;
+                    ctx.globalAlpha = alpha;
+                    ctx.beginPath();
+                    ctx.arc(ball.history[h].x, ball.history[h].y, ball.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1.0;
+                ctx.fillStyle = ball.color;
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.fillStyle = leftPaddle.color;
+            ctx.fillRect(leftPaddle.x, leftPaddle.y, leftPaddle.width, leftPaddle.height);
+
+            ctx.fillStyle = rightPaddle.color;
+            ctx.fillRect(rightPaddle.x, rightPaddle.y, rightPaddle.width, rightPaddle.height);
+
+            ctx.fillStyle = topPaddle.color;
+            ctx.fillRect(topPaddle.x, topPaddle.y, topPaddle.width, topPaddle.height);
+
+            ctx.fillStyle = bottomPaddle.color;
+            ctx.fillRect(bottomPaddle.x, bottomPaddle.y, bottomPaddle.width, bottomPaddle.height);
+        }
+
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+
+        resetBalls();
+        loop();
+    </script>
+</body>
+</html>
